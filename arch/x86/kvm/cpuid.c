@@ -1034,20 +1034,64 @@ bool kvm_cpuid(struct kvm_vcpu *vcpu, u32 *eax, u32 *ebx,
 }
 EXPORT_SYMBOL_GPL(kvm_cpuid);
 
+uint32_t num_exits[50];
+uint32_t num_cycles[50];
+uint32_t total_exits;
+uint64_t total_cycles;
+
+EXPORT_SYMBOL(num_exits);
+EXPORT_SYMBOL(num_cycles);
+EXPORT_SYMBOL(total_exits);
+EXPORT_SYMBOL(total_cycles);
+
 int kvm_emulate_cpuid(struct kvm_vcpu *vcpu)
 {
-	u32 eax, ebx, ecx, edx;
+  u32 eax, ebx, ecx, edx;
+	
+  if (cpuid_fault_enabled(vcpu) && !kvm_require_cpl(vcpu, 0))
+    return 1;
 
-	if (cpuid_fault_enabled(vcpu) && !kvm_require_cpl(vcpu, 0))
-		return 1;
+  eax = kvm_rax_read(vcpu);
+  ecx = kvm_rcx_read(vcpu);
 
-	eax = kvm_rax_read(vcpu);
-	ecx = kvm_rcx_read(vcpu);
-	kvm_cpuid(vcpu, &eax, &ebx, &ecx, &edx, false);
-	kvm_rax_write(vcpu, eax);
-	kvm_rbx_write(vcpu, ebx);
-	kvm_rcx_write(vcpu, ecx);
-	kvm_rdx_write(vcpu, edx);
-	return kvm_skip_emulated_instruction(vcpu);
+  switch(eax) {
+     case 0x4fffffff:
+	// Set eax to total_exits 	
+	eax = total_exits;
+	// Additionally output to kernel log on host machine
+	printk(KERN_INFO "CMPE283 TOTAL_EXITS %d", total_exits);
+      	break;
+     case 0x4ffffffe:
+	// Set ebx to high 32 bits of total_cycles
+       	ebx = (uint32_t) total_cycles;
+	// Set ecx to low 32 bits of total_cycles
+       	ecx = (uint32_t) 32 >> total_cycles;
+	// Additionally output to kernel log on host machine      	
+	printk(KERN_INFO "CMPE283 TOTAL_CYCLES %lld", total_cycles);
+       	break;
+     case 0x4ffffffc:
+	// Set eax to num_exits with ecx as index parameter
+	eax = num_exits[ecx];
+	// Additionally output to kernel log on host machine	
+       	printk(KERN_INFO "CMPE283 COUNT_PER_EXIT_TYPE %d %d", ecx, num_exits[ecx]);
+       break;
+     case 0x4ffffffd:
+	// Set eax to num_cycles with ecx as index parameter
+	eax = num_cycles[ecx];
+	// Additionally output to kernel log on host machine
+       	printk(KERN_INFO "CMPE283 CYCLES_PER_EXIT_TYPE %d %d", ecx, num_cycles[ecx]);
+       	break;
+     default:
+	// The default behavior of kvm_cpuid
+       	kvm_cpuid(vcpu, &eax, &ebx, &ecx, &edx, false);
+       	break;
+  }
+
+  kvm_rax_write(vcpu, eax);
+  kvm_rbx_write(vcpu, ebx);
+  kvm_rcx_write(vcpu, ecx);
+  kvm_rdx_write(vcpu, edx);
+  return kvm_skip_emulated_instruction(vcpu);
 }
+
 EXPORT_SYMBOL_GPL(kvm_emulate_cpuid);
